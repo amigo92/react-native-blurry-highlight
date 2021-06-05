@@ -1,8 +1,8 @@
+
 const colorPallete = {
   palette: {
     light: {
       backgroundColor: '#FFF',
-      backgroundAccent: '#FFF',
       color: '#000',
     },
     dark: {
