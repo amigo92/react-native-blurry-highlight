@@ -2,6 +2,7 @@
 ## An experiment showing blurry highlight of a FlatList item using react-native-reanimated 2
 
 ### Demo
+Change the Window Size of browser to 67% to view the demo in a single window (Apologies!)
 ![](DEMO.gif)
 
 ### Instructions To Run
