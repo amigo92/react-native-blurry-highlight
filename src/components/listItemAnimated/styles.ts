@@ -1,7 +1,7 @@
-import { StyleSheet } from 'react-native';
+import {StyleSheet} from 'react-native';
 
 const styles = StyleSheet.create({
-  listItem: { zIndex: 10, position: 'absolute' },
+  listItem: {zIndex: 10, position: 'absolute'},
   portalOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 15,

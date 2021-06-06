@@ -1,11 +1,9 @@
 /* eslint-disable react-native/no-inline-styles */
 import React, {memo, useMemo} from 'react';
-import {ViewProps, Text, View} from 'react-native';
+import {ViewProps, Text, Dimensions, View, useColorScheme} from 'react-native';
 
 import {
-  TapGestureHandler,
   LongPressGestureHandler,
-  TapGestureHandlerGestureEvent,
   LongPressGestureHandlerGestureEvent,
 } from 'react-native-gesture-handler';
 import Animated, {
@@ -15,13 +13,22 @@ import Animated, {
   useAnimatedRef,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withTiming,
+  withSpring,
   useAnimatedReaction,
 } from 'react-native-reanimated';
 
 import {Portal} from '@gorhom/portal';
 import {nanoid} from 'nanoid/non-secure';
 
-import {WINDOW_HEIGHT, POPUP} from '../../utilities/constants';
+import {
+  POPUP_TRANSFORM_DURATION,
+  POPUP_SCALE_DOWN_DURATION,
+  POPUP_SCALE_DOWN_VALUE,
+  WINDOW_HEIGHT,
+  POPUP,
+} from '../../utilities/constants';
 import styles from './styles';
 
 import type {ListAnimatedContentProps} from './types';
@@ -42,6 +49,7 @@ const ListAnimatedContentComponent = ({
   const itemRectX = useSharedValue<number>(0);
   const itemRectWidth = useSharedValue<number>(0);
   const itemRectHeight = useSharedValue<number>(0);
+  const itemScale = useSharedValue<number>(1);
 
   const key = useMemo(() => nanoid(), []);
   const heightForPopup = 300;
@@ -78,6 +86,36 @@ const ListAnimatedContentComponent = ({
     return tY;
   };
 
+  /*Called to unshrink the items from shrink's completion handler, doesn't really show up on the original item,
+  this is mainly for item in the popup*/
+  const unshrinkItem = () => {
+    'worklet';
+    itemScale.value = withTiming(1, {
+      duration: POPUP_TRANSFORM_DURATION / 2,
+    });
+  };
+
+  /*Called to unshrink the items and to turn on isActive flag for the popup and it's animations*/
+  const onCompletion = (isFinised: boolean) => {
+    'worklet';
+    if (isFinised) {
+      state.value = POPUP.ACTIVE;
+      isActive.value = true;
+      unshrinkItem();
+    }
+  };
+
+  /*Shrinks the original list item 5% when long press to show the effect like in touchable opacity*/
+  const shrinkItem = () => {
+    'worklet';
+    itemScale.value = withTiming(
+      POPUP_SCALE_DOWN_VALUE,
+      {duration: POPUP_SCALE_DOWN_DURATION},
+      onCompletion,
+    );
+  };
+
+  /*For starting the animation and bring up the popup*/
   const gestureEvent = useAnimatedGestureHandler<
     LongPressGestureHandlerGestureEvent,
     Context
@@ -90,8 +128,7 @@ const ListAnimatedContentComponent = ({
       }
 
       if (!isActive.value) {
-        state.value = POPUP.ACTIVE;
-        isActive.value = true;
+        shrinkItem();
       }
     },
     onFinish: (_, context) => {
@@ -99,19 +136,22 @@ const ListAnimatedContentComponent = ({
     },
   });
 
-  const overlayGestureEvent = useAnimatedGestureHandler<
-    TapGestureHandlerGestureEvent,
-    Context
-  >({
-    onActive: _ => {
-      state.value = POPUP.END;
-    },
-  });
-
+  /*runs the values edited by shrink and unshrink methods and makes the original item
+  in the item list transparent when the popup is on (it's animated style scales to 1 from 0.95 fixed from this method)*/
   const animatedContainerStyle = useAnimatedStyle(() => {
-    console.log(isActive);
+    /*Delay to wait until shrink finishes up*/
+    const animateOpacity = () =>
+      withDelay(POPUP_TRANSFORM_DURATION, withTiming(1, {duration: 0}));
+
     return {
-      opacity: isActive.value ? 0 : 1,
+      opacity: isActive.value ? 0 : animateOpacity(),
+      transform: [
+        {
+          scale: isActive.value
+            ? withTiming(1, {duration: POPUP_TRANSFORM_DURATION})
+            : itemScale.value,
+        },
+      ],
     };
   });
   const containerStyle = React.useMemo(
@@ -119,8 +159,27 @@ const ListAnimatedContentComponent = ({
     [containerStyles, animatedContainerStyle],
   );
 
+  /*brings the popup on the top of the dom tree above the blur view.
+    animation on chaning its height(1), make it opaque(2), translating(3) it on the position and scaling(4) it*/
   const animatedPortalStyle = useAnimatedStyle(() => {
+    const animateOpacity = () =>
+      withDelay(POPUP_TRANSFORM_DURATION, withTiming(0, {duration: 0}));
+
     let tY = calculateTransformValue();
+    const transformAnimation = () =>
+      isActive.value
+        ? /*using spring configuration to change the spring animation a bit*/
+          withSpring(tY, {
+            damping: 33,
+            mass: 1.03,
+            stiffness: 500,
+          })
+        : withTiming(0, {duration: POPUP_TRANSFORM_DURATION});
+
+    const transformAnimationHeight = () =>
+      isActive.value
+        ? withTiming(itemRectHeight.value + 300, {duration: 0})
+        : withTiming(itemRectHeight.value, {duration: 0});
 
     return {
       zIndex: 10,
@@ -128,14 +187,17 @@ const ListAnimatedContentComponent = ({
       top: itemRectY.value,
       left: itemRectX.value,
       width: itemRectWidth.value,
-      height: isActive.value
-        ? itemRectHeight.value + 300
-        : itemRectHeight.value,
-      opacity: isActive.value ? 1 : 0,
+      height: transformAnimationHeight(),
+      opacity: isActive.value ? 1 : animateOpacity(),
       backgroundColor: colorPallete.palette[theme.value].backgroundColor,
       transform: [
         {
-          translateY: isActive.value ? tY : 0,
+          translateY: transformAnimation(),
+        },
+        {
+          scale: isActive.value
+            ? withTiming(1, {duration: POPUP_TRANSFORM_DURATION})
+            : itemScale.value,
         },
       ],
     };
@@ -173,6 +235,9 @@ const ListAnimatedContentComponent = ({
   const animatedPortalProps = useAnimatedProps<ViewProps>(() => ({
     pointerEvents: isActive.value ? 'auto' : 'none',
   }));
+
+  /*Tracks state to change shared value of this component based on the state's value which
+  is changed on blur view's click to close the popup*/
   useAnimatedReaction(
     () => state.value,
     _state => {
@@ -197,21 +262,8 @@ const ListAnimatedContentComponent = ({
           key={key}
           style={portalContainerStyle}
           animatedProps={animatedPortalProps}>
-          <TapGestureHandler
-            numberOfTaps={1}
-            onHandlerStateChange={overlayGestureEvent}>
-            <Animated.View style={styles.portalOverlay} />
-          </TapGestureHandler>
-          <TapGestureHandler
-            numberOfTaps={1}
-            onHandlerStateChange={overlayGestureEvent}>
-            {children}
-          </TapGestureHandler>
-          <TapGestureHandler
-            numberOfTaps={1}
-            onHandlerStateChange={overlayGestureEvent}>
-            {getTextComponents}
-          </TapGestureHandler>
+          {children}
+          {getTextComponents}
         </Animated.View>
       </Portal>
     </>

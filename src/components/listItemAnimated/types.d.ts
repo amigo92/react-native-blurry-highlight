@@ -7,7 +7,3 @@ export type ListAnimatedContentProps = {
 
   containerStyles?: ViewStyle | ViewStyle[];
 };
-
-export type GestureHandlerProps = {
-  children: React.ReactElement | React.ReactElement[];
-};
